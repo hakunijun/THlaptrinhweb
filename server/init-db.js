@@ -1,83 +1,98 @@
-import sqlite3 from 'sqlite3';
-import { promisify } from 'util';
-import { existsSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import mysql from 'mysql2/promise';
+import 'dotenv/config';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const dbPath = path.join(__dirname, 'hospital.db');
-
-// Check if database exists
-const dbExists = existsSync(dbPath);
-
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err);
-    process.exit(1);
-  }
-  console.log('Connected to SQLite database');
-});
-
-// Promisify database methods
-const dbRun = promisify(db.run.bind(db));
-const dbGet = promisify(db.get.bind(db));
-const dbAll = promisify(db.all.bind(db));
+const {
+  DB_HOST = 'localhost',
+  DB_USER = 'root',
+  DB_PASSWORD = '',
+  DB_NAME = 'hospital_appointments'
+} = process.env;
 
 async function initDatabase() {
+  let connection;
+  
   try {
+    // First, connect without specifying database to create it if needed
+    connection = await mysql.createConnection({
+      host: DB_HOST,
+      user: DB_USER,
+      password: DB_PASSWORD
+    });
+
+    console.log('Connected to MySQL server');
+
+    // Create database if it doesn't exist
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
+    console.log(`Database '${DB_NAME}' ready`);
+
+    // Close connection and reconnect to the specific database
+    await connection.end();
+
+    // Connect to the specific database
+    connection = await mysql.createConnection({
+      host: DB_HOST,
+      user: DB_USER,
+      password: DB_PASSWORD,
+      database: DB_NAME
+    });
+
+    console.log(`Connected to database '${DB_NAME}'`);
+
     // Create users table
-    await dbRun(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        fullName TEXT NOT NULL,
-        phone TEXT NOT NULL,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        fullName VARCHAR(255) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    console.log('Users table created/verified');
 
     // Create appointments table
-    await dbRun(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS appointments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId INTEGER NOT NULL,
-        patientName TEXT NOT NULL,
-        phone TEXT NOT NULL,
-        email TEXT,
-        specialty TEXT NOT NULL,
-        doctor TEXT,
-        date TEXT NOT NULL,
-        time TEXT NOT NULL,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userId INT NOT NULL,
+        patientName VARCHAR(255) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        email VARCHAR(255),
+        specialty VARCHAR(255) NOT NULL,
+        doctor VARCHAR(255),
+        date DATE NOT NULL,
+        time TIME NOT NULL,
         symptoms TEXT,
-        status TEXT DEFAULT 'pending',
+        status VARCHAR(50) DEFAULT 'pending',
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (userId) REFERENCES users(id)
-      )
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    console.log('Appointments table created/verified');
 
-    console.log('Database tables created successfully');
+    console.log('\n✅ Database initialization completed successfully!');
+    console.log(`Database: ${DB_NAME}`);
+    console.log('Tables: users, appointments');
 
-    // Check if we need to migrate data from localStorage (optional)
-    if (!dbExists) {
-      console.log('New database created. Ready to use.');
-    } else {
-      console.log('Database already exists. Tables verified.');
-    }
-
-    db.close((err) => {
-      if (err) {
-        console.error('Error closing database:', err);
-      } else {
-        console.log('Database connection closed');
-      }
-    });
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('❌ Error initializing database:', error.message);
+    if (error.code === 'ER_ACCESS_DENIED_ERROR') {
+      console.error('\n⚠️  Database access denied. Please check:');
+      console.error('   - MySQL server is running');
+      console.error('   - DB_USER and DB_PASSWORD in .env file are correct');
+    } else if (error.code === 'ECONNREFUSED') {
+      console.error('\n⚠️  Cannot connect to MySQL server. Please check:');
+      console.error('   - MySQL server is running');
+      console.error('   - DB_HOST in .env file is correct (default: localhost)');
+    }
     process.exit(1);
+  } finally {
+    if (connection) {
+      await connection.end();
+      console.log('Database connection closed');
+    }
   }
 }
 
 initDatabase();
-

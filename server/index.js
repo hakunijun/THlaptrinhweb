@@ -1,67 +1,55 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import sqlite3 from 'sqlite3';
+import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const dbPath = path.join(__dirname, 'hospital.db');
+const {
+  DB_HOST = 'localhost',
+  DB_USER = 'root',
+  DB_PASSWORD = '',
+  DB_NAME = 'hospital_appointments',
+  PORT = 3001
+} = process.env;
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Initialize database if it doesn't exist
-if (!existsSync(dbPath)) {
-  console.log('Database not found. Please run: npm run init-db');
-}
-
-// Database connection
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err);
-  } else {
-    console.log('Connected to SQLite database');
-  }
+// Create MySQL connection pool
+const pool = mysql.createPool({
+  host: DB_HOST,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
-// Promisify database methods
-const dbRun = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
+// Test database connection
+pool.getConnection()
+  .then(connection => {
+    console.log('✅ Connected to MySQL database');
+    connection.release();
+  })
+  .catch(err => {
+    console.error('❌ Error connecting to MySQL database:', err.message);
+    if (err.code === 'ER_ACCESS_DENIED_ERROR') {
+      console.error('⚠️  Database access denied. Please check DB_USER and DB_PASSWORD in .env file');
+    } else if (err.code === 'ECONNREFUSED') {
+      console.error('⚠️  Cannot connect to MySQL server. Please ensure MySQL is running');
+    } else if (err.code === 'ER_BAD_DB_ERROR') {
+      console.error(`⚠️  Database '${DB_NAME}' does not exist. Please run: npm run init-db`);
+    }
+    process.exit(1);
   });
-};
-
-const dbGet = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
-};
-
-const dbAll = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-};
 
 // Auth Routes
 app.post('/api/auth/register', async (req, res) => {
+  let connection;
   try {
     const { email, password, fullName, phone } = req.body;
 
@@ -69,9 +57,15 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
+    connection = await pool.getConnection();
+
     // Check if user exists
-    const existingUser = await dbGet('SELECT * FROM users WHERE email = ?', [email]);
-    if (existingUser) {
+    const [existingUsers] = await connection.execute(
+      'SELECT * FROM users WHERE email = ?',
+      [email]
+    );
+    
+    if (existingUsers.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
@@ -79,22 +73,28 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user
-    const result = await dbRun(
+    const [result] = await connection.execute(
       'INSERT INTO users (email, password, fullName, phone) VALUES (?, ?, ?, ?)',
       [email, hashedPassword, fullName, phone]
     );
 
     // Return user without password
-    const user = await dbGet('SELECT id, email, fullName, phone FROM users WHERE id = ?', [result.id]);
+    const [users] = await connection.execute(
+      'SELECT id, email, fullName, phone FROM users WHERE id = ?',
+      [result.insertId]
+    );
 
-    res.status(201).json({ success: true, user });
+    res.status(201).json({ success: true, user: users[0] });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
+  let connection;
   try {
     const { email, password } = req.body;
 
@@ -102,11 +102,19 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
+    connection = await pool.getConnection();
+
     // Find user
-    const user = await dbGet('SELECT * FROM users WHERE email = ?', [email]);
-    if (!user) {
+    const [users] = await connection.execute(
+      'SELECT * FROM users WHERE email = ?',
+      [email]
+    );
+    
+    if (users.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    const user = users[0];
 
     // Verify password
     const isValid = await bcrypt.compare(password, user.password);
@@ -120,25 +128,34 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 // Appointments Routes
 app.get('/api/appointments/:userId', async (req, res) => {
+  let connection;
   try {
     const { userId } = req.params;
-    const appointments = await dbAll(
+    connection = await pool.getConnection();
+    
+    const [appointments] = await connection.execute(
       'SELECT * FROM appointments WHERE userId = ? ORDER BY createdAt DESC',
       [userId]
     );
+    
     res.json(appointments);
   } catch (error) {
     console.error('Error fetching appointments:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 app.post('/api/appointments', async (req, res) => {
+  let connection;
   try {
     const { userId, patientName, phone, email, specialty, doctor, date, time, symptoms } = req.body;
 
@@ -146,68 +163,95 @@ app.post('/api/appointments', async (req, res) => {
       return res.status(400).json({ error: 'Required fields are missing' });
     }
 
-    const result = await dbRun(
+    connection = await pool.getConnection();
+
+    const [result] = await connection.execute(
       `INSERT INTO appointments (userId, patientName, phone, email, specialty, doctor, date, time, symptoms, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [userId, patientName, phone, email || null, specialty, doctor || null, date, time, symptoms || null]
     );
 
-    const appointment = await dbGet('SELECT * FROM appointments WHERE id = ?', [result.id]);
-    res.status(201).json(appointment);
+    const [appointments] = await connection.execute(
+      'SELECT * FROM appointments WHERE id = ?',
+      [result.insertId]
+    );
+
+    res.status(201).json(appointments[0]);
   } catch (error) {
     console.error('Error creating appointment:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 app.delete('/api/appointments/:id', async (req, res) => {
+  let connection;
   try {
     const { id } = req.params;
-    await dbRun('DELETE FROM appointments WHERE id = ?', [id]);
+    connection = await pool.getConnection();
+    
+    await connection.execute('DELETE FROM appointments WHERE id = ?', [id]);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting appointment:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 app.put('/api/appointments/:id', async (req, res) => {
+  let connection;
   try {
     const { id } = req.params;
     const { status } = req.body;
     
-    if (status) {
-      await dbRun('UPDATE appointments SET status = ? WHERE id = ?', [status, id]);
-      const appointment = await dbGet('SELECT * FROM appointments WHERE id = ?', [id]);
-      res.json(appointment);
-    } else {
-      res.status(400).json({ error: 'Status is required' });
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
     }
+
+    connection = await pool.getConnection();
+    
+    await connection.execute('UPDATE appointments SET status = ? WHERE id = ?', [status, id]);
+    
+    const [appointments] = await connection.execute(
+      'SELECT * FROM appointments WHERE id = ?',
+      [id]
+    );
+    
+    res.json(appointments[0]);
   } catch (error) {
     console.error('Error updating appointment:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: existsSync(dbPath) ? 'connected' : 'not found' });
+app.get('/api/health', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.ping();
+    res.json({ status: 'ok', database: 'connected' });
+  } catch (error) {
+    res.json({ status: 'error', database: 'disconnected', error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-  db.close((err) => {
-    if (err) {
-      console.error('Error closing database:', err);
-    } else {
-      console.log('Database connection closed');
-    }
-    process.exit(0);
-  });
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down server...');
+  await pool.end();
+  console.log('Database connection pool closed');
+  process.exit(0);
 });
-
