@@ -29,6 +29,7 @@ app.use(express.json());
 // Create MySQL connection pool
 const pool = mysql.createPool({
   host: DB_HOST,
+  port: parseInt(DB_PORT),
   user: DB_USER,
   password: DB_PASSWORD,
   database: DB_NAME,

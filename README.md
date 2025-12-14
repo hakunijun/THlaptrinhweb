@@ -21,7 +21,7 @@ A full-stack web application for managing hospital appointments, built with Reac
 ## Prerequisites
 
 - Node.js (v16 or higher)
-- MySQL Server (v5.7 or higher, or MariaDB)
+- MySQL Server (v5.7 or higher, or MariaDB) - listening on port 3306
 - npm or yarn
 
 ## Installation
@@ -39,25 +39,27 @@ cd server
 npm install
 ```
 
-### 3. Configure MySQL Database
+### 3. Configure Environment Variables
 
-1. Make sure MySQL server is running
-2. Create a `.env` file in the `server` directory:
+1. Make sure MySQL server is running on port 3306 (default MySQL port)
+2. Create a `.env` file in the **project root** directory:
 
 ```bash
-cd server
 cp .env.example .env
 ```
 
-3. Edit `server/.env` with your MySQL credentials:
+3. Edit `.env` with your MySQL credentials:
 
 ```env
 DB_HOST=localhost
+DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_mysql_password
 DB_NAME=hospital_appointments
 PORT=3001
 ```
+
+**Note:** All environment variables are unified in a single `.env` file at the project root for easier management.
 
 ### 4. Initialize Database
 
@@ -95,7 +97,7 @@ npm run dev:full
 
 - Frontend: http://localhost:5173 (or the port shown in terminal)
 - Backend API: http://localhost:3001
-- phpMyAdmin: http://localhost/phpmyadmin (if installed)
+- phpMyAdmin: http://localhost/phpmyadmin (if installed) - connects to MySQL on port 3306
 
 ## API Endpoints
 
@@ -141,9 +143,9 @@ npm run dev:full
 ### Database Connection Issues
 
 1. **Cannot connect to MySQL:**
-   - Ensure MySQL server is running
-   - Check `DB_HOST`, `DB_USER`, and `DB_PASSWORD` in `.env` file
-   - Verify MySQL is accessible: `mysql -u root -p`
+   - Ensure MySQL server is running on port 3306
+   - Check `DB_HOST`, `DB_PORT`, `DB_USER`, and `DB_PASSWORD` in `.env` file
+   - Verify MySQL is accessible: `mysql -u root -p -h localhost -P 3306`
 
 2. **Database doesn't exist:**
    - Run `npm run init-db` in the server directory
@@ -155,10 +157,12 @@ npm run dev:full
 ### Port Conflicts
 - Frontend default port: 5173 (Vite)
 - Backend default port: 3001
+- MySQL default port: 3306
 
 Change ports in:
 - Frontend: `vite.config.ts`
 - Backend: `PORT` in `.env` file
+- MySQL: `DB_PORT` in `.env` file (if MySQL is on a different port)
 
 ## Security Notes
 
@@ -180,3 +184,8 @@ The backend server can be run directly with Node.js:
 cd server
 node index.js
 ```
+
+## Repository
+
+This project is linked to: https://github.com/hakunijun/THlaptrinhweb.git
+

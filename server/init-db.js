@@ -11,6 +11,7 @@ dotenv.config({ path: join(rootDir, '.env') });
 
 const {
   DB_HOST = 'localhost',
+  DB_PORT = '3306',
   DB_USER = 'root',
   DB_PASSWORD = '',
   DB_NAME = 'hospital_appointments'
@@ -23,6 +24,7 @@ async function initDatabase() {
     // First, connect without specifying database to create it if needed
     connection = await mysql.createConnection({
       host: DB_HOST,
+      port: parseInt(DB_PORT),
       user: DB_USER,
       password: DB_PASSWORD
     });
@@ -39,6 +41,7 @@ async function initDatabase() {
     // Connect to the specific database
     connection = await mysql.createConnection({
       host: DB_HOST,
+      port: parseInt(DB_PORT),
       user: DB_USER,
       password: DB_PASSWORD,
       database: DB_NAME
