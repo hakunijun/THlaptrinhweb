@@ -14,6 +14,7 @@ dotenv.config({ path: join(rootDir, '.env') });
 
 const {
   DB_HOST = 'localhost',
+  DB_PORT = '3306',
   DB_USER = 'root',
   DB_PASSWORD = '',
   DB_NAME = 'hospital_appointments',
