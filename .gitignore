@@ -16,9 +16,8 @@ build/
 .env
 .env.local
 .env.production
-# Keep .env.example files for reference
+# Keep .env.example file for reference
 !.env.example
-!server/.env.example
 
 # IDE
 .vscode/

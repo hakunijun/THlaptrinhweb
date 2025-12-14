@@ -1,8 +1,16 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import express from 'express';
 import cors from 'cors';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
+
+// Load environment variables from root .env file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const rootDir = join(__dirname, '..');
+dotenv.config({ path: join(rootDir, '.env') });
 
 const {
   DB_HOST = 'localhost',
@@ -29,7 +37,7 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// Test database connection
+// Test database connection (non-blocking)
 pool.getConnection()
   .then(connection => {
     console.log('✅ Connected to MySQL database');
@@ -39,12 +47,17 @@ pool.getConnection()
     console.error('❌ Error connecting to MySQL database:', err.message);
     if (err.code === 'ER_ACCESS_DENIED_ERROR') {
       console.error('⚠️  Database access denied. Please check DB_USER and DB_PASSWORD in .env file');
+      console.error('⚠️  Server will start but database operations will fail until MySQL is configured');
     } else if (err.code === 'ECONNREFUSED') {
       console.error('⚠️  Cannot connect to MySQL server. Please ensure MySQL is running');
+      console.error('⚠️  Server will start but database operations will fail until MySQL is running');
     } else if (err.code === 'ER_BAD_DB_ERROR') {
       console.error(`⚠️  Database '${DB_NAME}' does not exist. Please run: npm run init-db`);
+      console.error('⚠️  Server will start but database operations will fail until database is created');
+    } else {
+      console.error('⚠️  Server will start but database operations may fail');
     }
-    process.exit(1);
+    // Don't exit - allow server to start so user can see the error
   });
 
 // Auth Routes

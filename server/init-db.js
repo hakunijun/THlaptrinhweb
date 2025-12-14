@@ -1,5 +1,13 @@
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import mysql from 'mysql2/promise';
-import 'dotenv/config';
+
+// Load environment variables from root .env file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const rootDir = join(__dirname, '..');
+dotenv.config({ path: join(rootDir, '.env') });
 
 const {
   DB_HOST = 'localhost',
